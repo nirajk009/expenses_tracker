@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MoneyVibe - Gen Z Expense Tracker</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <i class="fas fa-wallet"></i>
+                <span>MoneyVibe</span>
+            </div>
+            <div class="header-actions">
+                <button id="headerAnalyticsBtn" class="btn-header-analytics" title="View Analytics">
+                    <i class="fas fa-chart-line"></i>
+                </button>
+                <div class="date-display" id="currentDate"></div>
+            </div>
+        </header>
+
+        <!-- Main Dashboard -->
+        <main class="main-content">
+            <!-- Balance Card -->
+            <section class="balance-card">
+                <div class="balance-header">
+                    <span class="label">Today's Spending</span>
+                    <div class="trend" id="trendIndicator">
+                        <i class="fas fa-arrow-up"></i>
+                        <span>vs yesterday</span>
+                    </div>
+                </div>
+                <div class="balance-amount" id="todayTotal">₹0</div>
+    <button id="headerAnalyticsBtn" class="btn-logo-analytics" title="View Analytics">
+                    <i class="fas fa-chart-line"></i>
+                </button>
+                <div class="balance-stats">
+                    <div class="stat">
+                        <span class="stat-label">This Week</span>
+                        <span class="stat-value" id="weekTotal">₹0</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">This Month</span>
+                        <span class="stat-value" id="monthTotal">₹0</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Quick Add Expense -->
+            <section class="quick-add-section">
+                <h2><i class="fas fa-bolt"></i> Quick Add</h2>
+                <div class="quick-add-container">
+                    <input 
+                        type="text" 
+                        id="expenseInput" 
+                        placeholder="e.g., Uber 100 rs, Brunch 120, Evening snacks 50..."
+                        autocomplete="off"
+                    >
+                    <button id="addExpenseBtn" class="btn-primary">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                </div>
+                <div class="quick-tags">
+                    <button class="tag-btn" data-text="Uber 100 rs">
+                        <i class="fas fa-car"></i> Uber ₹100
+                    </button>
+                    <button class="tag-btn" data-text="Brunch 120 rs">
+                        <i class="fas fa-coffee"></i> Brunch ₹120
+                    </button>
+                    <button class="tag-btn" data-text="Evening snacks 50 rs">
+                        <i class="fas fa-cookie-bite"></i> Snacks ₹50
+                    </button>
+                    <button class="tag-btn" data-text="Dinner 200 rs">
+                        <i class="fas fa-utensils"></i> Dinner ₹200
+                    </button>
+                </div>
+            </section>
+
+            <!-- Categories Overview -->
+            <section class="categories-section">
+                <h2><i class="fas fa-chart-pie"></i> Categories</h2>
+                <div class="categories-grid" id="categoriesGrid">
+                    <!-- Categories will be populated by JS -->
+                </div>
+            </section>
+
+            <!-- Recent Expenses -->
+            <section class="expenses-section">
+                <div class="section-header">
+                    <h2><i class="fas fa-list"></i> Recent Expenses</h2>
+                    <button id="clearAllBtn" class="btn-text">
+                        <i class="fas fa-trash"></i> Clear All
+                    </button>
+                </div>
+                <div class="expenses-list" id="expensesList">
+                    <!-- Expenses will be populated by JS -->
+                </div>
+            </section>
+
+            <!-- View All Link -->
+            <div class="view-all-container">
+                <button id="viewAnalyticsBtn" class="btn-analytics">
+                    <i class="fas fa-chart-line"></i> View Analytics & History
+                </button>
+            </div>
+        </main>
+
+        <!-- Analytics Page (Hidden by default) -->
+        <div class="analytics-page" id="analyticsPage">
+            <header class="analytics-header">
+                <button id="backToHome" class="btn-back">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+                <h2><i class="fas fa-chart-pie"></i> Analytics</h2>
+                <div style="width: 40px;"></div>
+            </header>
+
+            <!-- Advanced Filters -->
+            <div class="advanced-filters">
+                <div class="filter-group">
+                    <label><i class="fas fa-calendar"></i> Month</label>
+                    <input type="month" id="monthPicker" class="filter-input">
+                </div>
+                <div class="filter-group">
+                    <label><i class="fas fa-tag"></i> Category</label>
+                    <select id="analyticsCategoryFilter" class="filter-input">
+                        <option value="all">All Categories</option>
+                        <option value="transport">🚗 Transport</option>
+                        <option value="food">🍽️ Food</option>
+                        <option value="snacks">🍪 Snacks</option>
+                        <option value="shopping">🛍️ Shopping</option>
+                        <option value="entertainment">🎮 Fun</option>
+                        <option value="other">📦 Other</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Time Period Selector -->
+            <div class="period-selector">
+                <button class="period-btn active" data-period="week">This Week</button>
+                <button class="period-btn" data-period="month">This Month</button>
+                <button class="period-btn" data-period="year">This Year</button>
+                <button class="period-btn" data-period="all">All Time</button>
+            </div>
+
+            <!-- Summary Cards -->
+            <div class="analytics-summary">
+                <div class="summary-card total">
+                    <div class="summary-icon"><i class="fas fa-wallet"></i></div>
+                    <div class="summary-info">
+                        <span class="summary-label">Total Spent</span>
+                        <span class="summary-value" id="analyticsTotal">₹0</span>
+                    </div>
+                </div>
+                <div class="summary-card count">
+                    <div class="summary-icon"><i class="fas fa-receipt"></i></div>
+                    <div class="summary-info">
+                        <span class="summary-label">Transactions</span>
+                        <span class="summary-value" id="analyticsCount">0</span>
+                    </div>
+                </div>
+                <div class="summary-card average">
+                    <div class="summary-icon"><i class="fas fa-calculator"></i></div>
+                    <div class="summary-info">
+                        <span class="summary-label">Daily Average</span>
+                        <span class="summary-value" id="analyticsAverage">₹0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Section -->
+            <div class="charts-section">
+                <!-- Category Chart -->
+                <div class="chart-container">
+                    <h3><i class="fas fa-chart-pie"></i> Spending by Category</h3>
+                    <div class="category-chart" id="categoryChart">
+                        <!-- SVG Chart will be rendered here -->
+                    </div>
+                    <div class="chart-legend" id="chartLegend"></div>
+                </div>
+
+                <!-- Stock Market Style Line Chart -->
+                <div class="chart-container">
+                    <h3><i class="fas fa-chart-line"></i> Spending Trend (Live)</h3>
+                    <div class="stock-chart-container">
+                        <div class="stock-chart-header">
+                            <span class="stock-current" id="stockCurrent">₹0</span>
+                            <span class="stock-change" id="stockChange">+0%</span>
+                        </div>
+                        <div class="stock-chart" id="stockChart">
+                            <!-- SVG Line chart -->
+                        </div>
+                        <div class="stock-legend">
+                            <span><i class="fas fa-circle" style="color: #10b981;"></i> Income</span>
+                            <span><i class="fas fa-circle" style="color: #ef4444;"></i> Expense</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Daily Trend Chart -->
+                <div class="chart-container">
+                    <h3><i class="fas fa-chart-bar"></i> Daily Spending Trend</h3>
+                    <div class="trend-chart" id="trendChart">
+                        <!-- Bar chart will be rendered here -->
+                    </div>
+                </div>
+
+                <!-- Monthly Comparison -->
+                <div class="chart-container">
+                    <h3><i class="fas fa-calendar-alt"></i> Monthly Overview</h3>
+                    <div class="monthly-chart" id="monthlyChart">
+                        <!-- Monthly bars -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Insights Section -->
+            <div class="insights-section">
+                <h3><i class="fas fa-lightbulb"></i> Insights</h3>
+                <div class="insights-list" id="insightsList">
+                    <!-- Insights will be populated here -->
+                </div>
+            </div>
+
+            <!-- Full History with Filters -->
+            <div class="history-section">
+                <div class="history-header">
+                    <h3><i class="fas fa-history"></i> Expense History</h3>
+                    <div class="history-filters">
+                        <select id="filterCategory">
+                            <option value="all">All Categories</option>
+                            <option value="transport">Transport</option>
+                            <option value="food">Food</option>
+                            <option value="snacks">Snacks</option>
+                            <option value="shopping">Shopping</option>
+                            <option value="entertainment">Fun</option>
+                            <option value="other">Other</option>
+                        </select>
+                        <select id="filterSort">
+                            <option value="newest">Newest First</option>
+                            <option value="oldest">Oldest First</option>
+                            <option value="highest">Highest Amount</option>
+                            <option value="lowest">Lowest Amount</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="full-expenses-list" id="fullExpensesList">
+                    <!-- Full list with pagination -->
+                </div>
+                <div class="pagination" id="pagination"></div>
+            </div>
+        </div>
+
+        <!-- Add Expense Modal -->
+        <div class="modal" id="expenseModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Add Expense</h3>
+                    <button class="close-btn" id="closeModal">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <form id="expenseForm">
+                    <div class="form-group">
+                        <label>Description</label>
+                        <input type="text" id="descInput" placeholder="What did you spend on?" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Amount (₹)</label>
+                        <input type="number" id="amountInput" placeholder="0" min="1" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Category</label>
+                        <div class="category-options" id="categoryOptions">
+                            <button type="button" class="cat-option active" data-cat="transport">
+                                <i class="fas fa-car"></i> Transport
+                            </button>
+                            <button type="button" class="cat-option" data-cat="food">
+                                <i class="fas fa-utensils"></i> Food
+                            </button>
+                            <button type="button" class="cat-option" data-cat="snacks">
+                                <i class="fas fa-cookie-bite"></i> Snacks
+                            </button>
+                            <button type="button" class="cat-option" data-cat="shopping">
+                                <i class="fas fa-shopping-bag"></i> Shopping
+                            </button>
+                            <button type="button" class="cat-option" data-cat="entertainment">
+                                <i class="fas fa-gamepad"></i> Fun
+                            </button>
+                            <button type="button" class="cat-option" data-cat="other">
+                                <i class="fas fa-ellipsis-h"></i> Other
+                            </button>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-submit">Add Expense</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Toast Notification -->
+        <div class="toast" id="toast">
+            <i class="fas fa-check-circle"></i>
+            <span id="toastMessage">Expense added!</span>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
