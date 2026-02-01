@@ -364,6 +364,26 @@
             </div>
         </div>
 
+        <!-- Sync Confirmation Modal -->
+        <div class="sync-modal" id="syncModal">
+            <div class="sync-container">
+                <div class="sync-icon">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                </div>
+                <h3>Sync Your Expenses?</h3>
+                <p id="syncMessage">You have expenses saved on this device.</p>
+                <div class="sync-buttons">
+                    <button class="sync-btn sync-yes" id="syncYes">
+                        <i class="fas fa-cloud-upload-alt"></i> Sync to Cloud
+                    </button>
+                    <button class="sync-btn sync-no" id="syncNo">
+                        <i class="fas fa-cloud-download-alt"></i> Load from Cloud
+                    </button>
+                </div>
+                <p class="sync-hint">Choose "Load from Cloud" to discard local data</p>
+            </div>
+        </div>
+
         <!-- User Profile Button (shown when logged in) -->
         <button class="user-profile-btn" id="userProfileBtn" style="display: none;">
             <i class="fas fa-user-circle"></i>

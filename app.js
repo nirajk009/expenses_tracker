@@ -272,6 +272,12 @@ class MoneyVibe {
         this.dom.passwordForm = document.getElementById('passwordForm');
         this.dom.memberSince = document.getElementById('memberSince');
         this.dom.totalExpensesCount = document.getElementById('totalExpensesCount');
+
+        // Sync modal elements
+        this.dom.syncModal = document.getElementById('syncModal');
+        this.dom.syncMessage = document.getElementById('syncMessage');
+        this.dom.syncYes = document.getElementById('syncYes');
+        this.dom.syncNo = document.getElementById('syncNo');
     }
 
     bindEvents() {
@@ -600,12 +606,10 @@ class MoneyVibe {
             const localExpenses = this.expenses.filter(e => e.id);
 
             if (localExpenses.length > 0) {
-                // Ask user if they want to sync local expenses or load from DB
-                const syncChoice = confirm(
-                    `You have ${localExpenses.length} expense(s) saved locally.\n\n` +
-                    `Click OK to sync them to your account.\n` +
-                    `Click Cancel to discard and load your saved expenses from the cloud.`
-                );
+                // Show styled sync modal
+                this.dom.syncMessage.textContent = `You have ${localExpenses.length} expense(s) saved on this device.`;
+
+                const syncChoice = await this.showSyncModal();
 
                 if (syncChoice) {
                     // Sync local expenses to cloud
@@ -652,6 +656,30 @@ class MoneyVibe {
 
         btn.innerHTML = originalText;
         btn.disabled = false;
+    }
+
+    // Show sync modal and return promise
+    showSyncModal() {
+        return new Promise((resolve) => {
+            this.dom.syncModal.classList.add('active');
+
+            const handleYes = () => {
+                this.dom.syncModal.classList.remove('active');
+                this.dom.syncYes.removeEventListener('click', handleYes);
+                this.dom.syncNo.removeEventListener('click', handleNo);
+                resolve(true);
+            };
+
+            const handleNo = () => {
+                this.dom.syncModal.classList.remove('active');
+                this.dom.syncYes.removeEventListener('click', handleYes);
+                this.dom.syncNo.removeEventListener('click', handleNo);
+                resolve(false);
+            };
+
+            this.dom.syncYes.addEventListener('click', handleYes);
+            this.dom.syncNo.addEventListener('click', handleNo);
+        });
     }
 
     async handleSignup() {
@@ -1419,12 +1447,21 @@ class MoneyVibe {
     }
 
     addExpense(expense) {
+        // Format date as local MySQL datetime (YYYY-MM-DD HH:MM:SS)
+        const now = new Date();
+        const localDate = now.getFullYear() + '-' +
+            String(now.getMonth() + 1).padStart(2, '0') + '-' +
+            String(now.getDate()).padStart(2, '0') + ' ' +
+            String(now.getHours()).padStart(2, '0') + ':' +
+            String(now.getMinutes()).padStart(2, '0') + ':' +
+            String(now.getSeconds()).padStart(2, '0');
+
         const newExpense = {
             id: String(Date.now()),
             description: expense.description,
             amount: expense.amount,
             category: expense.category,
-            date: new Date().toISOString()
+            date: localDate
         };
 
         // Add to local storage immediately (instant UI)
