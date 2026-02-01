@@ -1,4 +1,4 @@
-// MoneyVibe - Gen Z Expense Tracker
+// N-Money - Gen Z Expense Tracker
 // LocalStorage + MySQL sync for fast UI with cloud backup
 
 // API Configuration and Sync Class
@@ -719,7 +719,7 @@ class MoneyVibe {
             this.currentUser = user;
             this.saveUser(user);
             this.showLoggedInState();
-            this.showToast(`Welcome to MoneyVibe, ${name}!`);
+            this.showToast(`Welcome to N-Money, ${name}!`);
             this.dom.signupForm.reset();
 
             // Sync local expenses to cloud in background
@@ -885,7 +885,8 @@ class MoneyVibe {
         // Update header
         this.dom.stockCurrent.textContent = this.formatCurrency(currentDay);
         this.dom.stockChange.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(1)}% vs prev`;
-        this.dom.stockChange.classList.toggle('negative', change < 0);
+        // For expenses: positive change (spending more) is bad (red), negative (spending less) is good (green)
+        this.dom.stockChange.classList.toggle('negative', change > 0);
 
         // Create SVG line chart
         const width = 100;
@@ -1587,17 +1588,20 @@ class MoneyVibe {
         this.dom.weekTotal.textContent = this.formatCurrency(weekTotal);
         this.dom.monthTotal.textContent = this.formatCurrency(monthTotal);
 
-        // Trend indicator
+        // Trend indicator - .down class = red, no .down = green
+        // For expenses: up (spending more) = bad (red), down (spending less) = good (green)
         if (yesterdayTotal > 0) {
             const diff = todayTotal - yesterdayTotal;
             const percent = Math.abs((diff / yesterdayTotal) * 100).toFixed(0);
 
             if (diff > 0) {
+                // Spending MORE = bad → add 'down' class for RED
                 this.dom.trendIndicator.innerHTML = `<i class="fas fa-arrow-up"></i> <span>${percent}% vs yesterday</span>`;
-                this.dom.trendIndicator.classList.remove('down');
-            } else if (diff < 0) {
-                this.dom.trendIndicator.innerHTML = `<i class="fas fa-arrow-down"></i> <span>${percent}% vs yesterday</span>`;
                 this.dom.trendIndicator.classList.add('down');
+            } else if (diff < 0) {
+                // Spending LESS = good → remove 'down' class for GREEN
+                this.dom.trendIndicator.innerHTML = `<i class="fas fa-arrow-down"></i> <span>${percent}% vs yesterday</span>`;
+                this.dom.trendIndicator.classList.remove('down');
             } else {
                 this.dom.trendIndicator.innerHTML = `<i class="fas fa-minus"></i> <span>Same as yesterday</span>`;
                 this.dom.trendIndicator.classList.remove('down');
