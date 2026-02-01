@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,6 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
+
 <body>
     <div class="app-container">
         <!-- Header -->
@@ -17,7 +19,8 @@
                 <span>MoneyVibe</span>
             </div>
             <div class="header-actions">
-                <button id="headerAnalyticsBtn" class="btn-header-analytics" title="View Analytics">
+                <button id="headerAnalyticsBtn" style="display: none;" class="btn-header-analytics"
+                    title="View Analytics">
                     <i class="fas fa-chart-line"></i>
                 </button>
                 <div class="date-display" id="currentDate"></div>
@@ -35,10 +38,12 @@
                         <span>vs yesterday</span>
                     </div>
                 </div>
-                <div class="balance-amount" id="todayTotal">₹0</div>
-    <button id="headerAnalyticsBtn" class="btn-logo-analytics" title="View Analytics">
-                    <i class="fas fa-chart-line"></i>
-                </button>
+                <div class="balance-amount-row">
+                    <div class="balance-amount" id="todayTotal">₹0</div>
+                    <button id="cardAnalyticsBtn" class="btn-card-analytics" title="View Analytics">
+                        <i class="fas fa-chart-line"></i>
+                    </button>
+                </div>
                 <div class="balance-stats">
                     <div class="stat">
                         <span class="stat-label">This Week</span>
@@ -55,12 +60,8 @@
             <section class="quick-add-section">
                 <h2><i class="fas fa-bolt"></i> Quick Add</h2>
                 <div class="quick-add-container">
-                    <input 
-                        type="text" 
-                        id="expenseInput" 
-                        placeholder="e.g., Uber 100 rs, Brunch 120, Evening snacks 50..."
-                        autocomplete="off"
-                    >
+                    <input type="text" id="expenseInput"
+                        placeholder="e.g., Uber 100 rs, Brunch 120, Evening snacks 50..." autocomplete="off">
                     <button id="addExpenseBtn" class="btn-primary">
                         <i class="fas fa-plus"></i>
                     </button>
@@ -195,10 +196,6 @@
                         <div class="stock-chart" id="stockChart">
                             <!-- SVG Line chart -->
                         </div>
-                        <div class="stock-legend">
-                            <span><i class="fas fa-circle" style="color: #10b981;"></i> Income</span>
-                            <span><i class="fas fa-circle" style="color: #ef4444;"></i> Expense</span>
-                        </div>
                     </div>
                 </div>
 
@@ -307,8 +304,165 @@
             <i class="fas fa-check-circle"></i>
             <span id="toastMessage">Expense added!</span>
         </div>
+
+        <!-- Auth Modal (Login/Signup) -->
+        <div class="auth-modal" id="authModal">
+            <div class="auth-container">
+                <div class="auth-header">
+                    <div class="auth-logo">
+                        <i class="fas fa-wallet"></i>
+                        <span>MoneyVibe</span>
+                    </div>
+                    <button class="auth-close" id="authClose">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+
+                <div class="auth-tabs">
+                    <button class="auth-tab active" data-tab="login">Login</button>
+                    <button class="auth-tab" data-tab="signup">Sign Up</button>
+                </div>
+
+                <!-- Login Form -->
+                <form class="auth-form active" id="loginForm">
+                    <div class="form-group">
+                        <label><i class="fas fa-envelope"></i> Email</label>
+                        <input type="email" id="loginEmail" placeholder="your@email.com" required>
+                    </div>
+                    <div class="form-group">
+                        <label><i class="fas fa-lock"></i> Password</label>
+                        <input type="password" id="loginPassword" placeholder="••••••••" required>
+                    </div>
+                    <button type="submit" class="auth-submit">
+                        <i class="fas fa-sign-in-alt"></i> Login
+                    </button>
+                    <p class="auth-hint">Demo: Use any email and password</p>
+                </form>
+
+                <!-- Signup Form -->
+                <form class="auth-form" id="signupForm">
+                    <div class="form-group">
+                        <label><i class="fas fa-user"></i> Full Name</label>
+                        <input type="text" id="signupName" placeholder="John Doe" required>
+                    </div>
+                    <div class="form-group">
+                        <label><i class="fas fa-envelope"></i> Email</label>
+                        <input type="email" id="signupEmail" placeholder="your@email.com" required>
+                    </div>
+                    <div class="form-group">
+                        <label><i class="fas fa-lock"></i> Password</label>
+                        <input type="password" id="signupPassword" placeholder="••••••••" required>
+                    </div>
+                    <div class="form-group">
+                        <label><i class="fas fa-lock"></i> Confirm Password</label>
+                        <input type="password" id="signupConfirm" placeholder="••••••••" required>
+                    </div>
+                    <button type="submit" class="auth-submit">
+                        <i class="fas fa-user-plus"></i> Create Account
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- User Profile Button (shown when logged in) -->
+        <button class="user-profile-btn" id="userProfileBtn" style="display: none;">
+            <i class="fas fa-user-circle"></i>
+        </button>
+
+        <!-- User Menu Dropdown -->
+        <div class="user-menu" id="userMenu">
+            <div class="user-menu-header">
+                <i class="fas fa-user-circle"></i>
+                <span id="userName">User</span>
+            </div>
+            <div class="user-menu-items">
+                <button class="user-menu-item" id="menuProfile">
+                    <i class="fas fa-user"></i> Profile
+                </button>
+                <button class="user-menu-item" id="menuLogout">
+                    <i class="fas fa-sign-out-alt"></i> Logout
+                </button>
+            </div>
+        </div>
+
+        <!-- Profile Page (Hidden by default) -->
+        <div class="profile-page" id="profilePage">
+            <header class="profile-header">
+                <button id="backFromProfile" class="btn-back">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+                <h2><i class="fas fa-user"></i> Profile</h2>
+                <div style="width: 40px;"></div>
+            </header>
+
+            <div class="profile-content">
+                <!-- Profile Avatar -->
+                <div class="profile-avatar-section">
+                    <div class="profile-avatar">
+                        <i class="fas fa-user"></i>
+                    </div>
+                    <h3 id="profileName">User Name</h3>
+                    <p id="profileEmail">user@email.com</p>
+                </div>
+
+                <!-- Edit Profile Form -->
+                <div class="profile-form-container">
+                    <h4><i class="fas fa-edit"></i> Edit Profile</h4>
+                    <form id="profileForm">
+                        <div class="form-group">
+                            <label><i class="fas fa-user"></i> Full Name</label>
+                            <input type="text" id="editName" placeholder="Your name" required>
+                        </div>
+                        <div class="form-group">
+                            <label><i class="fas fa-envelope"></i> Email</label>
+                            <input type="email" id="editEmail" placeholder="your@email.com" required disabled>
+                            <small class="input-hint">Email cannot be changed</small>
+                        </div>
+                        <button type="submit" class="btn-save">
+                            <i class="fas fa-save"></i> Save Changes
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Change Password Form -->
+                <div class="profile-form-container">
+                    <h4><i class="fas fa-lock"></i> Change Password</h4>
+                    <form id="passwordForm">
+                        <div class="form-group">
+                            <label><i class="fas fa-lock"></i> Current Password</label>
+                            <input type="password" id="currentPassword" placeholder="••••••••" required>
+                        </div>
+                        <div class="form-group">
+                            <label><i class="fas fa-lock"></i> New Password</label>
+                            <input type="password" id="newPassword" placeholder="••••••••" required>
+                        </div>
+                        <div class="form-group">
+                            <label><i class="fas fa-lock"></i> Confirm New Password</label>
+                            <input type="password" id="confirmNewPassword" placeholder="••••••••" required>
+                        </div>
+                        <button type="submit" class="btn-save">
+                            <i class="fas fa-key"></i> Update Password
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Account Info -->
+                <div class="profile-info">
+                    <h4><i class="fas fa-info-circle"></i> Account Info</h4>
+                    <div class="info-item">
+                        <span class="info-label">Member Since</span>
+                        <span class="info-value" id="memberSince">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Total Expenses</span>
+                        <span class="info-value" id="totalExpensesCount">0</span>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="app.js"></script>
 </body>
+
 </html>

@@ -1,5 +1,166 @@
 // MoneyVibe - Gen Z Expense Tracker
-// LocalStorage-based expense management with natural language input
+// LocalStorage + MySQL sync for fast UI with cloud backup
+
+// API Configuration and Sync Class
+class MoneyVibeAPI {
+    constructor() {
+        this.baseUrl = 'https://shivshaktimultispecialityhospital.com/niraj_api/sql.php';
+        this.syncQueue = [];
+        this.isSyncing = false;
+    }
+
+    // Execute SQL query via API
+    async query(sql, params = []) {
+        try {
+            const response = await fetch(this.baseUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query: sql, params: params })
+            });
+            const result = await response.json();
+            return result;
+        } catch (error) {
+            console.error('API Error:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    // User signup - save to database
+    async signup(email, password, name) {
+        // Simple hash (for demo - use bcrypt in production)
+        const hashedPass = btoa(password);
+        const result = await this.query(
+            'INSERT INTO expenses_users (email, password, name) VALUES (?, ?, ?)',
+            [email, hashedPass, name]
+        );
+        if (result.success) {
+            return { success: true, userId: result.lastInsertId };
+        }
+        return { success: false, error: result.message || 'Signup failed' };
+    }
+
+    // User login - verify credentials
+    async login(email, password) {
+        const hashedPass = btoa(password);
+        const result = await this.query(
+            'SELECT id, email, name, created_at FROM expenses_users WHERE email = ? AND password = ?',
+            [email, hashedPass]
+        );
+        if (result.success && result.data && result.data.length > 0) {
+            return { success: true, user: result.data[0] };
+        }
+        // Check if user exists with wrong password
+        const userExists = await this.query(
+            'SELECT id FROM expenses_users WHERE email = ?',
+            [email]
+        );
+        if (userExists.success && userExists.data && userExists.data.length > 0) {
+            return { success: false, error: 'Incorrect password' };
+        }
+        return { success: false, error: 'User not found' };
+    }
+
+    // Add expense to database (background sync)
+    async addExpense(userId, expense) {
+        const result = await this.query(
+            'INSERT INTO expenses_data (user_id, description, amount, category, date, local_id) VALUES (?, ?, ?, ?, ?, ?)',
+            [userId, expense.description, expense.amount, expense.category, expense.date, expense.id]
+        );
+        return result;
+    }
+
+    // Delete expense from database
+    async deleteExpense(userId, localId) {
+        const result = await this.query(
+            'DELETE FROM expenses_data WHERE user_id = ? AND local_id = ?',
+            [userId, localId]
+        );
+        return result;
+    }
+
+    // Get all expenses for user from database
+    async getExpenses(userId) {
+        const result = await this.query(
+            'SELECT * FROM expenses_data WHERE user_id = ? ORDER BY date DESC',
+            [userId]
+        );
+        return result;
+    }
+
+    // Sync local expenses to database
+    async syncExpenses(userId, localExpenses) {
+        if (this.isSyncing || !userId) return;
+        this.isSyncing = true;
+
+        try {
+            // Get remote expenses
+            const remote = await this.getExpenses(userId);
+            if (!remote.success) {
+                this.isSyncing = false;
+                return;
+            }
+
+            const remoteIds = new Set(remote.data.map(e => e.local_id));
+
+            // Upload local expenses that don't exist remotely
+            for (const expense of localExpenses) {
+                if (!remoteIds.has(expense.id)) {
+                    await this.addExpense(userId, expense);
+                }
+            }
+
+            console.log('Sync complete');
+        } catch (error) {
+            console.error('Sync error:', error);
+        }
+
+        this.isSyncing = false;
+    }
+
+    // Update user profile
+    async updateProfile(userId, name) {
+        const result = await this.query(
+            'UPDATE expenses_users SET name = ? WHERE id = ?',
+            [name, userId]
+        );
+        return result;
+    }
+
+    // Update password
+    async updatePassword(userId, currentPass, newPass) {
+        const hashedCurrent = btoa(currentPass);
+        const hashedNew = btoa(newPass);
+
+        // Verify current password
+        const verify = await this.query(
+            'SELECT id FROM expenses_users WHERE id = ? AND password = ?',
+            [userId, hashedCurrent]
+        );
+
+        if (!verify.success || !verify.data || verify.data.length === 0) {
+            return { success: false, error: 'Current password is incorrect' };
+        }
+
+        // Update password
+        const result = await this.query(
+            'UPDATE expenses_users SET password = ? WHERE id = ?',
+            [hashedNew, userId]
+        );
+        return result;
+    }
+
+    // Clear all expenses for user
+    async clearExpenses(userId) {
+        const result = await this.query(
+            'DELETE FROM expenses_data WHERE user_id = ?',
+            [userId]
+        );
+        return result;
+    }
+}
+
+// Initialize API
+const api = new MoneyVibeAPI();
 
 class MoneyVibe {
     constructor() {
@@ -13,6 +174,7 @@ class MoneyVibe {
             other: { name: 'Other', icon: 'fa-ellipsis-h', color: '#9ca3af' }
         };
         this.currentCategory = 'transport';
+        this.currentUser = this.loadUser();
         this.init();
     }
 
@@ -21,6 +183,8 @@ class MoneyVibe {
         this.bindEvents();
         this.updateDate();
         this.render();
+        // Show profile button on startup (handles both logged in and logged out states)
+        this.dom.userProfileBtn.style.display = 'flex';
     }
 
     cacheDOM() {
@@ -47,6 +211,7 @@ class MoneyVibe {
             // Analytics page elements
             viewAnalyticsBtn: document.getElementById('viewAnalyticsBtn'),
             headerAnalyticsBtn: document.getElementById('headerAnalyticsBtn'),
+            cardAnalyticsBtn: document.getElementById('cardAnalyticsBtn'),
             analyticsPage: document.getElementById('analyticsPage'),
             backToHome: document.getElementById('backToHome'),
             periodBtns: document.querySelectorAll('.period-btn'),
@@ -69,8 +234,8 @@ class MoneyVibe {
             stockCurrent: document.getElementById('stockCurrent'),
             stockChange: document.getElementById('stockChange')
         };
-        
-            // Analytics state
+
+        // Analytics state
         this.analyticsState = {
             period: 'week',
             currentPage: 1,
@@ -79,10 +244,34 @@ class MoneyVibe {
             filterSort: 'newest',
             selectedMonth: null
         };
-        
+
         // Set default month picker to current month
         const now = new Date();
         this.analyticsState.selectedMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+        // Auth elements
+        this.dom.authModal = document.getElementById('authModal');
+        this.dom.authClose = document.getElementById('authClose');
+        this.dom.authTabs = document.querySelectorAll('.auth-tab');
+        this.dom.loginForm = document.getElementById('loginForm');
+        this.dom.signupForm = document.getElementById('signupForm');
+        this.dom.userProfileBtn = document.getElementById('userProfileBtn');
+        this.dom.userMenu = document.getElementById('userMenu');
+        this.dom.userName = document.getElementById('userName');
+        this.dom.menuProfile = document.getElementById('menuProfile');
+        this.dom.menuLogout = document.getElementById('menuLogout');
+
+        // Profile page elements
+        this.dom.profilePage = document.getElementById('profilePage');
+        this.dom.backFromProfile = document.getElementById('backFromProfile');
+        this.dom.profileName = document.getElementById('profileName');
+        this.dom.profileEmail = document.getElementById('profileEmail');
+        this.dom.editName = document.getElementById('editName');
+        this.dom.editEmail = document.getElementById('editEmail');
+        this.dom.profileForm = document.getElementById('profileForm');
+        this.dom.passwordForm = document.getElementById('passwordForm');
+        this.dom.memberSince = document.getElementById('memberSince');
+        this.dom.totalExpensesCount = document.getElementById('totalExpensesCount');
     }
 
     bindEvents() {
@@ -127,6 +316,9 @@ class MoneyVibe {
         // Analytics page navigation
         this.dom.viewAnalyticsBtn.addEventListener('click', () => this.openAnalytics());
         this.dom.headerAnalyticsBtn.addEventListener('click', () => this.openAnalytics());
+        if (this.dom.cardAnalyticsBtn) {
+            this.dom.cardAnalyticsBtn.addEventListener('click', () => this.openAnalytics());
+        }
         this.dom.backToHome.addEventListener('click', () => this.closeAnalytics());
 
         // Month picker
@@ -170,6 +362,322 @@ class MoneyVibe {
             this.analyticsState.filterSort = e.target.value;
             this.renderHistory();
         });
+
+        // Auth events
+        this.bindAuthEvents();
+
+        // Check auth state
+        this.checkAuthState();
+    }
+
+    // Auth Methods
+    bindAuthEvents() {
+        // Auth modal close
+        this.dom.authClose.addEventListener('click', () => this.closeAuthModal());
+        this.dom.authModal.addEventListener('click', (e) => {
+            if (e.target === this.dom.authModal) this.closeAuthModal();
+        });
+
+        // Auth tabs
+        this.dom.authTabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                this.dom.authTabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+
+                const formId = tab.dataset.tab === 'login' ? 'loginForm' : 'signupForm';
+                document.querySelectorAll('.auth-form').forEach(f => f.classList.remove('active'));
+                document.getElementById(formId).classList.add('active');
+            });
+        });
+
+        // Login form
+        this.dom.loginForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleLogin();
+        });
+
+        // Signup form
+        this.dom.signupForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleSignup();
+        });
+
+        // User profile button
+        this.dom.userProfileBtn.addEventListener('click', () => {
+            if (this.currentUser) {
+                // Logged in - show user menu
+                this.dom.userMenu.classList.toggle('active');
+            } else {
+                // Not logged in - show login modal
+                this.openAuthModal();
+            }
+        });
+
+        // Close user menu when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!this.dom.userProfileBtn.contains(e.target) && !this.dom.userMenu.contains(e.target)) {
+                this.dom.userMenu.classList.remove('active');
+            }
+        });
+
+        // Menu items
+        this.dom.menuProfile.addEventListener('click', () => {
+            this.dom.userMenu.classList.remove('active');
+            this.openProfilePage();
+        });
+
+        this.dom.menuLogout.addEventListener('click', () => {
+            this.logout();
+        });
+
+        // Profile page
+        this.dom.backFromProfile.addEventListener('click', () => this.closeProfilePage());
+
+        this.dom.profileForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.updateProfile();
+        });
+
+        this.dom.passwordForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.updatePassword();
+        });
+    }
+
+    // Profile Page Methods
+    openProfilePage() {
+        this.loadProfileData();
+        this.dom.profilePage.classList.add('active');
+        document.body.style.overflow = 'hidden';
+    }
+
+    closeProfilePage() {
+        this.dom.profilePage.classList.remove('active');
+        document.body.style.overflow = '';
+    }
+
+    loadProfileData() {
+        if (!this.currentUser) return;
+
+        // Update display
+        this.dom.profileName.textContent = this.currentUser.name || 'User';
+        this.dom.profileEmail.textContent = this.currentUser.email || '';
+        this.dom.userName.textContent = this.currentUser.name || this.currentUser.email;
+
+        // Update form
+        this.dom.editName.value = this.currentUser.name || '';
+        this.dom.editEmail.value = this.currentUser.email || '';
+
+        // Update account info
+        if (this.currentUser.createdAt) {
+            const date = new Date(this.currentUser.createdAt);
+            this.dom.memberSince.textContent = date.toLocaleDateString('en-IN', {
+                day: 'numeric',
+                month: 'long',
+                year: 'numeric'
+            });
+        } else {
+            this.dom.memberSince.textContent = 'Recently';
+        }
+
+        this.dom.totalExpensesCount.textContent = this.expenses.length;
+    }
+
+    async updateProfile() {
+        const newName = this.dom.editName.value.trim();
+
+        if (!newName) {
+            this.showToast('Please enter your name', 'error');
+            return;
+        }
+
+        // Update locally first (instant)
+        this.currentUser.name = newName;
+        this.saveUser(this.currentUser);
+        this.loadProfileData();
+        this.showToast('Profile updated successfully!');
+
+        // Sync to database in background
+        if (this.currentUser.id) {
+            api.updateProfile(this.currentUser.id, newName);
+        }
+    }
+
+    async updatePassword() {
+        const currentPass = document.getElementById('currentPassword').value;
+        const newPass = document.getElementById('newPassword').value;
+        const confirmPass = document.getElementById('confirmNewPassword').value;
+
+        if (!currentPass || !newPass || !confirmPass) {
+            this.showToast('Please fill all password fields', 'error');
+            return;
+        }
+
+        if (newPass !== confirmPass) {
+            this.showToast('New passwords do not match', 'error');
+            return;
+        }
+
+        if (newPass.length < 6) {
+            this.showToast('Password must be at least 6 characters', 'error');
+            return;
+        }
+
+        // Update via API
+        if (this.currentUser.id) {
+            const result = await api.updatePassword(this.currentUser.id, currentPass, newPass);
+            if (result.success) {
+                this.dom.passwordForm.reset();
+                this.showToast('Password updated successfully!');
+            } else {
+                this.showToast(result.error || 'Failed to update password', 'error');
+            }
+        } else {
+            this.showToast('Please login to change password', 'error');
+        }
+    }
+
+    checkAuthState() {
+        if (this.currentUser) {
+            this.showLoggedInState();
+        } else {
+            this.showLoggedOutState();
+        }
+    }
+
+    showLoggedInState() {
+        this.dom.userProfileBtn.style.display = 'flex';
+        this.dom.userName.textContent = this.currentUser.name || this.currentUser.email;
+        this.closeAuthModal();
+    }
+
+    showLoggedOutState() {
+        // Show profile button even when logged out
+        this.dom.userProfileBtn.style.display = 'flex';
+        this.dom.userMenu.classList.remove('active');
+        // Don't auto-open auth modal - let user click profile button
+    }
+
+    openAuthModal() {
+        this.dom.authModal.classList.add('active');
+    }
+
+    closeAuthModal() {
+        this.dom.authModal.classList.remove('active');
+    }
+
+    async handleLogin() {
+        const email = document.getElementById('loginEmail').value;
+        const password = document.getElementById('loginPassword').value;
+
+        // Show loading
+        const btn = this.dom.loginForm.querySelector('.auth-submit');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Logging in...';
+        btn.disabled = true;
+
+        // Try API login first
+        const result = await api.login(email, password);
+
+        if (result.success) {
+            const user = {
+                id: result.user.id,
+                email: result.user.email,
+                name: result.user.name || email.split('@')[0],
+                createdAt: result.user.created_at,
+                loggedInAt: new Date().toISOString()
+            };
+
+            this.currentUser = user;
+            this.saveUser(user);
+            this.showLoggedInState();
+            this.showToast(`Welcome back, ${user.name}!`);
+            this.dom.loginForm.reset();
+
+            // Sync local expenses to cloud in background
+            setTimeout(() => api.syncExpenses(user.id, this.expenses), 1000);
+        } else {
+            this.showToast(result.error || 'Login failed', 'error');
+        }
+
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+
+    async handleSignup() {
+        const name = document.getElementById('signupName').value;
+        const email = document.getElementById('signupEmail').value;
+        const password = document.getElementById('signupPassword').value;
+        const confirm = document.getElementById('signupConfirm').value;
+
+        if (password !== confirm) {
+            this.showToast('Passwords do not match!', 'error');
+            return;
+        }
+
+        if (password.length < 6) {
+            this.showToast('Password must be at least 6 characters', 'error');
+            return;
+        }
+
+        // Show loading
+        const btn = this.dom.signupForm.querySelector('.auth-submit');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating account...';
+        btn.disabled = true;
+
+        // Create user via API
+        const result = await api.signup(email, password, name);
+
+        if (result.success) {
+            const user = {
+                id: result.userId,
+                email: email,
+                name: name,
+                createdAt: new Date().toISOString(),
+                loggedInAt: new Date().toISOString()
+            };
+
+            this.currentUser = user;
+            this.saveUser(user);
+            this.showLoggedInState();
+            this.showToast(`Welcome to MoneyVibe, ${name}!`);
+            this.dom.signupForm.reset();
+
+            // Sync local expenses to cloud in background
+            setTimeout(() => api.syncExpenses(user.id, this.expenses), 1000);
+        } else {
+            // Check if email already exists
+            if (result.error && result.error.includes('Duplicate')) {
+                this.showToast('Email already registered. Please login.', 'error');
+            } else {
+                this.showToast(result.error || 'Signup failed', 'error');
+            }
+        }
+
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+
+    logout() {
+        this.currentUser = null;
+        localStorage.removeItem('moneyvibe_user');
+        this.dom.userMenu.classList.remove('active');
+        this.showLoggedOutState();
+        this.showToast('Logged out successfully');
+    }
+
+    loadUser() {
+        try {
+            const stored = localStorage.getItem('moneyvibe_user');
+            return stored ? JSON.parse(stored) : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    saveUser(user) {
+        localStorage.setItem('moneyvibe_user', JSON.stringify(user));
     }
 
     // Analytics Methods
@@ -187,14 +695,14 @@ class MoneyVibe {
     getExpensesByPeriod(period) {
         const now = new Date();
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        
+
         let filtered = [...this.expenses];
-        
+
         // Apply category filter if set
         if (this.analyticsState.filterCategory && this.analyticsState.filterCategory !== 'all') {
             filtered = filtered.filter(e => e.category === this.analyticsState.filterCategory);
         }
-        
+
         // Apply month filter if custom period selected
         if (period === 'custom' && this.analyticsState.selectedMonth) {
             const [year, month] = this.analyticsState.selectedMonth.split('-').map(Number);
@@ -203,8 +711,8 @@ class MoneyVibe {
                 return d.getMonth() === month - 1 && d.getFullYear() === year;
             });
         }
-        
-        switch(period) {
+
+        switch (period) {
             case 'week':
                 const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
                 return filtered.filter(e => new Date(e.date) >= weekAgo);
@@ -234,31 +742,60 @@ class MoneyVibe {
 
     renderStockChart(expenses) {
         if (!this.dom.stockChart) return;
-        
-        if (expenses.length === 0) {
-            this.dom.stockChart.innerHTML = '<div class="empty-state"><p>No data for chart</p></div>';
-            this.dom.stockCurrent.textContent = '₹0';
-            this.dom.stockChange.textContent = '0%';
-            return;
+
+        // Determine how many days to show based on period
+        let daysToShow = 7;
+        if (this.analyticsState.period === 'month' || this.analyticsState.period === 'custom') daysToShow = 14;
+        else if (this.analyticsState.period === 'year') daysToShow = 12; // months
+        else if (this.analyticsState.period === 'all') daysToShow = 14;
+
+        const now = new Date();
+        const dailyTotals = {};
+
+        // Initialize all days/months in the period with 0
+        if (this.analyticsState.period === 'year') {
+            // Show months for year view
+            for (let i = daysToShow - 1; i >= 0; i--) {
+                const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                const key = `${d.getFullYear()}-${d.getMonth()}`;
+                dailyTotals[key] = { date: d, amount: 0, items: [] };
+            }
+            // Sum expenses into months
+            expenses.forEach(e => {
+                const d = new Date(e.date);
+                const key = `${d.getFullYear()}-${d.getMonth()}`;
+                if (dailyTotals[key]) {
+                    dailyTotals[key].amount += e.amount;
+                    dailyTotals[key].items.push(e.description);
+                }
+            });
+        } else {
+            // Show days for other views
+            for (let i = daysToShow - 1; i >= 0; i--) {
+                const d = new Date(now);
+                d.setDate(d.getDate() - i);
+                d.setHours(0, 0, 0, 0);
+                const key = d.toDateString();
+                dailyTotals[key] = { date: new Date(d), amount: 0, items: [] };
+            }
+            // Sum expenses into days
+            expenses.forEach(e => {
+                const d = new Date(e.date);
+                const key = d.toDateString();
+                if (dailyTotals[key]) {
+                    dailyTotals[key].amount += e.amount;
+                    dailyTotals[key].items.push(e.description);
+                }
+            });
         }
 
-        // Group expenses by day
-        const dailyTotals = {};
-        expenses.forEach(e => {
-            const dateKey = new Date(e.date).toDateString();
-            if (!dailyTotals[dateKey]) {
-                dailyTotals[dateKey] = { date: new Date(e.date), amount: 0, items: [] };
-            }
-            dailyTotals[dateKey].amount += e.amount;
-            dailyTotals[dateKey].items.push(e.description);
-        });
-
-        // Sort by date and get last 14 days
-        const sortedDays = Object.values(dailyTotals).sort((a, b) => a.date - b.date);
-        const dataPoints = sortedDays.slice(-14); // Show last 14 days
+        // Sort by date
+        const dataPoints = Object.values(dailyTotals).sort((a, b) => a.date - b.date);
 
         if (dataPoints.length === 0) {
             this.dom.stockChart.innerHTML = '<div class="empty-state"><p>No data for chart</p></div>';
+            this.dom.stockCurrent.textContent = '₹0';
+            this.dom.stockChange.textContent = '0%';
             return;
         }
 
@@ -276,7 +813,7 @@ class MoneyVibe {
         const width = 100;
         const height = 60;
         const padding = 8;
-        
+
         const maxVal = Math.max(...dataPoints.map(d => d.amount), 1);
         const minVal = Math.min(...dataPoints.map(d => d.amount), 0);
         const range = maxVal - minVal || 1;
@@ -284,11 +821,11 @@ class MoneyVibe {
         // Generate smooth line path - simple curved line like the reference image
         let pathD = '';
         let areaD = '';
-        
+
         dataPoints.forEach((point, i) => {
             const x = padding + (i / (dataPoints.length - 1 || 1)) * (width - 2 * padding);
             const y = height - padding - ((point.amount - minVal) / range) * (height - 2 * padding);
-            
+
             if (i === 0) {
                 pathD += `M ${x} ${y}`;
                 areaD += `M ${x} ${height - padding} L ${x} ${y}`;
@@ -301,7 +838,7 @@ class MoneyVibe {
                 areaD += ` Q ${cpX} ${prevY}, ${x} ${y}`;
             }
         });
-        
+
         // Close area path
         const lastX = padding + (width - 2 * padding);
         areaD += ` L ${lastX} ${height - padding} Z`;
@@ -313,71 +850,104 @@ class MoneyVibe {
             gridLines += `<line class="stock-grid-line" x1="${padding}" y1="${y}" x2="${width - padding}" y2="${y}" />`;
         }
 
-        // Generate points - only show some points to avoid clutter
-        const showEvery = Math.ceil(dataPoints.length / 10);
-        const points = dataPoints.map((point, i) => {
-            const x = padding + (i / (dataPoints.length - 1 || 1)) * (width - 2 * padding);
-            const y = height - padding - ((point.amount - minVal) / range) * (height - 2 * padding);
+        // Generate dot positions - only show every few points to keep it clean
+        const showEvery = Math.max(1, Math.floor(dataPoints.length / 6));
+        const dotPositions = dataPoints.map((point, i) => {
+            const xPercent = (padding + (i / (dataPoints.length - 1 || 1)) * (width - 2 * padding)) / width * 100;
+            const yPercent = (height - padding - ((point.amount - minVal) / range) * (height - 2 * padding)) / height * 100;
             const isLast = i === dataPoints.length - 1;
-            const shouldShow = isLast || i % showEvery === 0 || dataPoints.length <= 10;
-            
-            if (!shouldShow) return '';
-            
-            return `<circle class="stock-point ${isLast ? 'active' : ''}" cx="${x}" cy="${y}" r="${isLast ? 5 : 3}" data-amount="${point.amount}" data-date="${point.date.toLocaleDateString('en-IN', {day:'numeric', month:'short'})}" data-items="${point.items.length}" />`;
-        }).join('');
+            const shouldShow = isLast || i === 0 || i % showEvery === 0;
+            return { x: xPercent, y: yPercent, amount: point.amount, date: point.date, show: shouldShow, isLast };
+        });
 
-        const lineColor = '#a78bfa';
+        const lineColor = '#f87171';
         const gradientId = 'stockGrad' + Date.now();
+
+        // Generate dots HTML - only key points
+        const dotsHtml = dotPositions
+            .filter(dot => dot.show)
+            .map(dot => `
+                <div class="stock-dot ${dot.isLast ? 'active' : ''}" 
+                     style="left: ${dot.x}%; top: ${dot.y}%;" 
+                     data-amount="${dot.amount}" 
+                     data-date="${dot.date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}">
+                </div>
+            `).join('');
+
+        // Generate date labels for x-axis
+        const labelIndices = [0, Math.floor(dataPoints.length / 2), dataPoints.length - 1];
+        const dateLabels = labelIndices.map(i => {
+            if (i >= dataPoints.length) return '';
+            const point = dataPoints[i];
+            const xPercent = (padding + (i / (dataPoints.length - 1 || 1)) * (width - 2 * padding)) / width * 100;
+            return `<span class="stock-date-label" style="left: ${xPercent}%;">${point.date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>`;
+        }).join('');
 
         this.dom.stockChart.innerHTML = `
             <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
                 <defs>
                     <linearGradient id="${gradientId}" x1="0%" y1="0%" x2="0%" y2="100%">
-                        <stop offset="0%" style="stop-color:${lineColor};stop-opacity:0.3" />
+                        <stop offset="0%" style="stop-color:${lineColor};stop-opacity:0.2" />
                         <stop offset="100%" style="stop-color:${lineColor};stop-opacity:0" />
                     </linearGradient>
                 </defs>
                 ${gridLines}
                 <path class="stock-area" d="${areaD}" fill="url(#${gradientId})" />
                 <path class="stock-line" d="${pathD}" stroke="${lineColor}" />
-                ${points}
             </svg>
+            <div class="stock-dots-container">${dotsHtml}</div>
+            <div class="stock-date-labels">${dateLabels}</div>
             <div class="stock-tooltip" id="stockTooltip"></div>
         `;
 
-        // Add tooltip events
+        // Add tooltip on tap/click (mobile friendly)
         const tooltip = this.dom.stockChart.querySelector('#stockTooltip');
-        this.dom.stockChart.querySelectorAll('.stock-point').forEach(point => {
-            point.addEventListener('mouseenter', (e) => {
+        let activeTooltip = null;
+
+        this.dom.stockChart.querySelectorAll('.stock-dot').forEach(dot => {
+            dot.addEventListener('click', (e) => {
+                e.stopPropagation();
                 const amount = e.target.dataset.amount;
                 const date = e.target.dataset.date;
-                const items = e.target.dataset.items;
-                tooltip.innerHTML = `<strong>${date}</strong><br/>Spent: ${this.formatCurrency(Number(amount))}<br/>${items} transaction${items > 1 ? 's' : ''}`;
+
+                // Toggle tooltip
+                if (activeTooltip === e.target) {
+                    tooltip.classList.remove('visible');
+                    activeTooltip = null;
+                    return;
+                }
+
+                tooltip.innerHTML = `<strong>₹${Number(amount).toLocaleString('en-IN')}</strong><br/>${date}`;
                 tooltip.classList.add('visible');
-                
+                activeTooltip = e.target;
+
                 const rect = e.target.getBoundingClientRect();
                 const chartRect = this.dom.stockChart.getBoundingClientRect();
-                tooltip.style.left = Math.min(rect.left - chartRect.left + 10, chartRect.width - 100) + 'px';
-                tooltip.style.top = (rect.top - chartRect.top - 50) + 'px';
+                tooltip.style.left = (rect.left - chartRect.left + rect.width / 2) + 'px';
+                tooltip.style.top = (rect.top - chartRect.top - 45) + 'px';
             });
-            
-            point.addEventListener('mouseleave', () => {
+        });
+
+        // Hide tooltip when tapping elsewhere
+        this.dom.stockChart.addEventListener('click', (e) => {
+            if (!e.target.classList.contains('stock-dot')) {
                 tooltip.classList.remove('visible');
-            });
+                activeTooltip = null;
+            }
         });
     }
 
     renderSummaryCards(expenses) {
         const total = expenses.reduce((sum, e) => sum + e.amount, 0);
         const count = expenses.length;
-        
+
         // Calculate daily average based on period
         let days = 1;
         if (this.analyticsState.period === 'week') days = 7;
         else if (this.analyticsState.period === 'month') days = 30;
         else if (this.analyticsState.period === 'year') days = 365;
         else days = Math.max(1, Math.ceil((Date.now() - Math.min(...expenses.map(e => new Date(e.date).getTime()))) / (1000 * 60 * 60 * 24)));
-        
+
         const average = count > 0 ? total / days : 0;
 
         this.dom.analyticsTotal.textContent = this.formatCurrency(total);
@@ -388,7 +958,7 @@ class MoneyVibe {
     renderCategoryChart(expenses) {
         const totals = this.getCategoryTotals(expenses);
         const total = Object.values(totals).reduce((sum, v) => sum + v, 0);
-        
+
         if (total === 0) {
             this.dom.categoryChart.innerHTML = '<div class="empty-state"><p>No data</p></div>';
             this.dom.chartLegend.innerHTML = '';
@@ -413,24 +983,24 @@ class MoneyVibe {
 
         Object.entries(totals).forEach(([cat, amount]) => {
             if (amount === 0) return;
-            
+
             const percentage = amount / total;
             const angle = percentage * 360;
             const color = colors[cat] || colors.other;
-            
+
             // Calculate SVG arc
             const startAngle = (currentAngle - 90) * Math.PI / 180;
             const endAngle = (currentAngle + angle - 90) * Math.PI / 180;
-            
+
             const x1 = center + radius * Math.cos(startAngle);
             const y1 = center + radius * Math.sin(startAngle);
             const x2 = center + radius * Math.cos(endAngle);
             const y2 = center + radius * Math.sin(endAngle);
-            
+
             const largeArc = angle > 180 ? 1 : 0;
-            
+
             svgContent += `<path d="M ${center} ${center} L ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2} Z" fill="${color}" />`;
-            
+
             // Add legend item
             const catName = this.categories[cat]?.name || cat;
             legendContent += `
@@ -442,7 +1012,7 @@ class MoneyVibe {
                     </div>
                 </div>
             `;
-            
+
             currentAngle += angle;
         });
 
@@ -460,10 +1030,10 @@ class MoneyVibe {
         const days = {};
         const now = new Date();
         let daysToShow = 7;
-        
+
         if (this.analyticsState.period === 'month') daysToShow = 30;
         else if (this.analyticsState.period === 'year') daysToShow = 12;
-        
+
         // Initialize days
         for (let i = daysToShow - 1; i >= 0; i--) {
             const d = new Date(now);
@@ -506,7 +1076,7 @@ class MoneyVibe {
         // Show last 6 months
         const months = {};
         const now = new Date();
-        
+
         for (let i = 5; i >= 0; i--) {
             const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
             const key = `${d.getFullYear()}-${d.getMonth()}`;
@@ -546,7 +1116,7 @@ class MoneyVibe {
         const insights = [];
         const totals = this.getCategoryTotals(expenses);
         const total = Object.values(totals).reduce((sum, v) => sum + v, 0);
-        
+
         // Highest spending category
         const highestCat = Object.entries(totals).sort((a, b) => b[1] - a[1])[0];
         if (highestCat && highestCat[1] > 0) {
@@ -596,14 +1166,14 @@ class MoneyVibe {
 
     renderHistory() {
         let filtered = [...this.expenses];
-        
+
         // Apply category filter
         if (this.analyticsState.filterCategory !== 'all') {
             filtered = filtered.filter(e => e.category === this.analyticsState.filterCategory);
         }
-        
+
         // Apply sort
-        switch(this.analyticsState.filterSort) {
+        switch (this.analyticsState.filterSort) {
             case 'oldest':
                 filtered.sort((a, b) => new Date(a.date) - new Date(b.date));
                 break;
@@ -661,10 +1231,10 @@ class MoneyVibe {
         // Render pagination
         if (totalPages > 1) {
             let paginationHtml = '';
-            
+
             // Prev button
             paginationHtml += `<button class="page-btn" ${this.analyticsState.currentPage === 1 ? 'disabled' : ''} onclick="app.goToPage(${this.analyticsState.currentPage - 1})"><i class="fas fa-chevron-left"></i></button>`;
-            
+
             // Page numbers
             for (let i = 1; i <= totalPages; i++) {
                 if (i === 1 || i === totalPages || (i >= this.analyticsState.currentPage - 1 && i <= this.analyticsState.currentPage + 1)) {
@@ -673,10 +1243,10 @@ class MoneyVibe {
                     paginationHtml += `<span style="color: var(--text-muted);">...</span>`;
                 }
             }
-            
+
             // Next button
             paginationHtml += `<button class="page-btn" ${this.analyticsState.currentPage === totalPages ? 'disabled' : ''} onclick="app.goToPage(${this.analyticsState.currentPage + 1})"><i class="fas fa-chevron-right"></i></button>`;
-            
+
             this.dom.pagination.innerHTML = paginationHtml;
         } else {
             this.dom.pagination.innerHTML = '';
@@ -735,7 +1305,7 @@ class MoneyVibe {
     // Auto-detect category based on description
     detectCategory(description) {
         const desc = description.toLowerCase();
-        
+
         const keywords = {
             transport: ['uber', 'ola', 'taxi', 'cab', 'auto', 'rickshaw', 'bus', 'train', 'metro', 'petrol', 'diesel', 'fuel', 'parking'],
             food: ['brunch', 'breakfast', 'lunch', 'dinner', 'meal', 'biryani', 'pizza', 'burger', 'restaurant', 'hotel', 'cafe', 'dhaba'],
@@ -761,7 +1331,7 @@ class MoneyVibe {
         }
 
         const parsed = this.parseExpenseInput(input);
-        
+
         if (parsed) {
             const category = this.detectCategory(parsed.description);
             this.addExpense({
@@ -800,33 +1370,51 @@ class MoneyVibe {
 
     addExpense(expense) {
         const newExpense = {
-            id: Date.now(),
+            id: String(Date.now()),
             description: expense.description,
             amount: expense.amount,
             category: expense.category,
             date: new Date().toISOString()
         };
 
+        // Add to local storage immediately (instant UI)
         this.expenses.unshift(newExpense);
         this.saveExpenses();
         this.render();
+
+        // Sync to database in background
+        if (this.currentUser && this.currentUser.id) {
+            api.addExpense(this.currentUser.id, newExpense).catch(e => console.log('Sync failed:', e));
+        }
     }
 
     deleteExpense(id) {
-        this.expenses = this.expenses.filter(e => e.id !== id);
+        // Delete from local storage immediately (instant UI)
+        this.expenses = this.expenses.filter(e => e.id !== id && String(e.id) !== String(id));
         this.saveExpenses();
         this.render();
         this.showToast('Expense deleted');
+
+        // Sync to database in background
+        if (this.currentUser && this.currentUser.id) {
+            api.deleteExpense(this.currentUser.id, String(id)).catch(e => console.log('Sync failed:', e));
+        }
     }
 
     clearAllExpenses() {
         if (this.expenses.length === 0) return;
-        
+
         if (confirm('Are you sure you want to clear all expenses? This cannot be undone.')) {
+            // Clear local storage immediately (instant UI)
             this.expenses = [];
             this.saveExpenses();
             this.render();
             this.showToast('All expenses cleared');
+
+            // Clear from database in background
+            if (this.currentUser && this.currentUser.id) {
+                api.clearExpenses(this.currentUser.id).catch(e => console.log('Sync failed:', e));
+            }
         }
     }
 
@@ -878,7 +1466,7 @@ class MoneyVibe {
     getCategoryTotals(expenses) {
         const totals = {};
         Object.keys(this.categories).forEach(cat => totals[cat] = 0);
-        
+
         expenses.forEach(e => {
             if (totals[e.category] !== undefined) {
                 totals[e.category] += e.amount;
@@ -886,7 +1474,7 @@ class MoneyVibe {
                 totals.other += e.amount;
             }
         });
-        
+
         return totals;
     }
 
@@ -916,7 +1504,7 @@ class MoneyVibe {
         if (yesterdayTotal > 0) {
             const diff = todayTotal - yesterdayTotal;
             const percent = Math.abs((diff / yesterdayTotal) * 100).toFixed(0);
-            
+
             if (diff > 0) {
                 this.dom.trendIndicator.innerHTML = `<i class="fas fa-arrow-up"></i> <span>${percent}% vs yesterday</span>`;
                 this.dom.trendIndicator.classList.remove('down');
@@ -968,13 +1556,13 @@ class MoneyVibe {
         this.dom.expensesList.innerHTML = recentExpenses.map(expense => {
             const cat = this.categories[expense.category] || this.categories.other;
             const date = new Date(expense.date);
-            const timeStr = date.toLocaleTimeString('en-IN', { 
-                hour: '2-digit', 
-                minute: '2-digit' 
+            const timeStr = date.toLocaleTimeString('en-IN', {
+                hour: '2-digit',
+                minute: '2-digit'
             });
-            const dateStr = date.toLocaleDateString('en-IN', { 
-                day: 'numeric', 
-                month: 'short' 
+            const dateStr = date.toLocaleDateString('en-IN', {
+                day: 'numeric',
+                month: 'short'
             });
 
             return `
@@ -1036,9 +1624,9 @@ class MoneyVibe {
         this.dom.toast.querySelector('i').className = `fas ${icon}`;
         this.dom.toast.style.borderColor = type === 'error' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(16, 185, 129, 0.3)';
         this.dom.toast.style.color = type === 'error' ? 'var(--danger)' : 'var(--success)';
-        
+
         this.dom.toast.classList.add('show');
-        
+
         setTimeout(() => {
             this.dom.toast.classList.remove('show');
         }, 3000);
