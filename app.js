@@ -555,7 +555,9 @@ class MoneyVibe {
         // Show profile button even when logged out
         this.dom.userProfileBtn.style.display = 'flex';
         this.dom.userMenu.classList.remove('active');
-        // Don't auto-open auth modal - let user click profile button
+
+        // Show login modal on new visit (user can close it)
+        this.openAuthModal();
     }
 
     openAuthModal() {
@@ -594,8 +596,56 @@ class MoneyVibe {
             this.showToast(`Welcome back, ${user.name}!`);
             this.dom.loginForm.reset();
 
-            // Sync local expenses to cloud in background
-            setTimeout(() => api.syncExpenses(user.id, this.expenses), 1000);
+            // Check if there are local expenses to sync
+            const localExpenses = this.expenses.filter(e => e.id);
+
+            if (localExpenses.length > 0) {
+                // Ask user if they want to sync local expenses or load from DB
+                const syncChoice = confirm(
+                    `You have ${localExpenses.length} expense(s) saved locally.\n\n` +
+                    `Click OK to sync them to your account.\n` +
+                    `Click Cancel to discard and load your saved expenses from the cloud.`
+                );
+
+                if (syncChoice) {
+                    // Sync local expenses to cloud
+                    this.showToast('Syncing expenses...');
+                    await api.syncExpenses(user.id, localExpenses);
+                    this.showToast('Expenses synced!');
+                } else {
+                    // Load expenses from database
+                    this.showToast('Loading your expenses...');
+                    const dbExpenses = await api.getExpenses(user.id);
+                    if (dbExpenses.success && dbExpenses.data) {
+                        // Convert DB format to local format
+                        this.expenses = dbExpenses.data.map(e => ({
+                            id: e.local_id || String(e.id),
+                            description: e.description,
+                            amount: parseFloat(e.amount),
+                            category: e.category,
+                            date: e.date
+                        }));
+                        this.saveExpenses();
+                        this.render();
+                        this.showToast(`Loaded ${this.expenses.length} expenses`);
+                    }
+                }
+            } else {
+                // No local expenses, load from database
+                const dbExpenses = await api.getExpenses(user.id);
+                if (dbExpenses.success && dbExpenses.data && dbExpenses.data.length > 0) {
+                    this.expenses = dbExpenses.data.map(e => ({
+                        id: e.local_id || String(e.id),
+                        description: e.description,
+                        amount: parseFloat(e.amount),
+                        category: e.category,
+                        date: e.date
+                    }));
+                    this.saveExpenses();
+                    this.render();
+                    this.showToast(`Loaded ${this.expenses.length} expenses from cloud`);
+                }
+            }
         } else {
             this.showToast(result.error || 'Login failed', 'error');
         }
