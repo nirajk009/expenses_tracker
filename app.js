@@ -69,13 +69,35 @@ class MoneyVibeAPI {
         return result;
     }
 
-    // Delete expense from database
+    // Delete expense from database and track deletion
     async deleteExpense(userId, localId) {
+        // First delete the expense
         const result = await this.query(
             'DELETE FROM expenses_data WHERE user_id = ? AND local_id = ?',
             [userId, localId]
         );
+
+        // Track the deletion (so other devices know it was deleted)
+        if (result.success) {
+            await this.query(
+                'INSERT IGNORE INTO expenses_deleted (user_id, local_id) VALUES (?, ?)',
+                [userId, localId]
+            );
+        }
+
         return result;
+    }
+
+    // Get list of deleted expense IDs for this user
+    async getDeletedIds(userId) {
+        const result = await this.query(
+            'SELECT local_id FROM expenses_deleted WHERE user_id = ?',
+            [userId]
+        );
+        if (result.success && result.data) {
+            return new Set(result.data.map(r => r.local_id));
+        }
+        return new Set();
     }
 
     // Get all expenses for user from database
@@ -205,14 +227,29 @@ class MoneyVibe {
             const dbExpenses = dbResult.data;
             const localExpenses = this.expenses;
 
-            // Get local IDs and DB local_ids for comparison
+            // Get deleted IDs (expenses deleted on other devices)
+            const deletedIds = await api.getDeletedIds(this.currentUser.id);
+
+            // Get DB local_ids for comparison
             const dbLocalIds = new Set(dbExpenses.map(e => e.local_id || String(e.id)));
 
-            // Find local expenses that are NOT in the database (unsynced)
-            const unsyncedLocal = localExpenses.filter(e => !dbLocalIds.has(e.id));
+            // Find local expenses that are NOT in DB and NOT deleted
+            // (truly unsynced new expenses)
+            const unsyncedLocal = localExpenses.filter(e =>
+                !dbLocalIds.has(e.id) && !deletedIds.has(e.id)
+            );
+
+            // Find local expenses that were deleted on another device
+            const deletedOnOtherDevice = localExpenses.filter(e => deletedIds.has(e.id));
+
+            // Remove locally any expenses that were deleted elsewhere
+            if (deletedOnOtherDevice.length > 0) {
+                this.expenses = this.expenses.filter(e => !deletedIds.has(e.id));
+                this.saveExpenses();
+            }
 
             if (unsyncedLocal.length > 0) {
-                // Ask user to sync unsynced local expenses
+                // Ask user to sync truly unsynced local expenses
                 this.dom.syncMessage.textContent = `You have ${unsyncedLocal.length} unsynced expense(s) on this device.`;
                 const syncChoice = await this.showSyncModal();
 
@@ -249,17 +286,15 @@ class MoneyVibe {
                 }
             } else {
                 // No unsynced local - just load from DB silently
-                if (dbExpenses.length > 0) {
-                    this.expenses = dbExpenses.map(e => ({
-                        id: e.local_id || String(e.id),
-                        description: e.description,
-                        amount: parseFloat(e.amount),
-                        category: e.category,
-                        date: e.date
-                    }));
-                    this.saveExpenses();
-                    this.render();
-                }
+                this.expenses = dbExpenses.map(e => ({
+                    id: e.local_id || String(e.id),
+                    description: e.description,
+                    amount: parseFloat(e.amount),
+                    category: e.category,
+                    date: e.date
+                }));
+                this.saveExpenses();
+                this.render();
             }
         } catch (error) {
             console.log('Sync on load failed:', error);
