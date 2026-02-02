@@ -185,6 +185,85 @@ class MoneyVibe {
         this.render();
         // Show profile button on startup (handles both logged in and logged out states)
         this.dom.userProfileBtn.style.display = 'flex';
+
+        // For logged-in users, sync with database on page load
+        if (this.currentUser) {
+            this.syncOnLoad();
+        }
+    }
+
+    // Sync expenses on page load for logged-in users
+    async syncOnLoad() {
+        try {
+            // Fetch expenses from database
+            const dbResult = await api.getExpenses(this.currentUser.id);
+
+            if (!dbResult.success || !dbResult.data) {
+                return; // No DB data, keep local
+            }
+
+            const dbExpenses = dbResult.data;
+            const localExpenses = this.expenses;
+
+            // Get local IDs and DB local_ids for comparison
+            const dbLocalIds = new Set(dbExpenses.map(e => e.local_id || String(e.id)));
+
+            // Find local expenses that are NOT in the database (unsynced)
+            const unsyncedLocal = localExpenses.filter(e => !dbLocalIds.has(e.id));
+
+            if (unsyncedLocal.length > 0) {
+                // Ask user to sync unsynced local expenses
+                this.dom.syncMessage.textContent = `You have ${unsyncedLocal.length} unsynced expense(s) on this device.`;
+                const syncChoice = await this.showSyncModal();
+
+                if (syncChoice) {
+                    // Merge: keep DB expenses + add unsynced local
+                    this.showToast('Syncing...');
+                    await api.syncExpenses(this.currentUser.id, unsyncedLocal);
+                    // Reload all from DB
+                    const refreshed = await api.getExpenses(this.currentUser.id);
+                    if (refreshed.success && refreshed.data) {
+                        this.expenses = refreshed.data.map(e => ({
+                            id: e.local_id || String(e.id),
+                            description: e.description,
+                            amount: parseFloat(e.amount),
+                            category: e.category,
+                            date: e.date
+                        }));
+                        this.saveExpenses();
+                        this.render();
+                    }
+                    this.showToast('Synced!');
+                } else {
+                    // Discard local, load from DB
+                    this.expenses = dbExpenses.map(e => ({
+                        id: e.local_id || String(e.id),
+                        description: e.description,
+                        amount: parseFloat(e.amount),
+                        category: e.category,
+                        date: e.date
+                    }));
+                    this.saveExpenses();
+                    this.render();
+                    this.showToast('Loaded from cloud');
+                }
+            } else {
+                // No unsynced local - just load from DB silently
+                if (dbExpenses.length > 0) {
+                    this.expenses = dbExpenses.map(e => ({
+                        id: e.local_id || String(e.id),
+                        description: e.description,
+                        amount: parseFloat(e.amount),
+                        category: e.category,
+                        date: e.date
+                    }));
+                    this.saveExpenses();
+                    this.render();
+                }
+            }
+        } catch (error) {
+            console.log('Sync on load failed:', error);
+        }
     }
 
     cacheDOM() {
